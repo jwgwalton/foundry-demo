@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: foundry-demo
+services:
+    ai-project:
+        # This set up connects to an existing deployed model, you can also define a model deployment here and it will deploy it for you.
+        host: azure.ai.project
+        endpoint: ${FOUNDRY_PROJECT_ENDPOINT}
+    agent-tools:
+        host: azure.ai.toolbox
+        uses:
+            - ai-project
+        description: Web search
+        tools:
+            - type: web_search
+    foundry-demo:
+        project: .
+        host: azure.ai.agent
+        language: docker
+        docker:
+            remoteBuild: true
+        uses:
+            - ai-project
+            - agent-tools
+        env:
+            AZURE_AI_MODEL_DEPLOYMENT_NAME: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+        container:
+            resources:
+                cpu: "0.5"
+                memory: 1Gi
+        kind: hosted
+        name: foundry-demo
+        protocols:
+            - protocol: responses
+              version: 2.0.0
+        startupCommand: python main.py
+infra:
+    provider: microsoft.foundry
