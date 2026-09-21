@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "skills": {
+    "build-review-interface": {
+      "source": "ai-evals-course/evals-skills",
+      "sourceType": "github",
+      "skillPath": "skills/build-review-interface/SKILL.md",
+      "computedHash": "281b835a0065bd4ee9ed08f84effc73a96b51c3ee61f4f4b2ec8ee8f61934655"
+    },
+    "error-discovery": {
+      "source": "ai-evals-course/evals-skills",
+      "sourceType": "github",
+      "skillPath": "skills/error-discovery/SKILL.md",
+      "computedHash": "e18d837668fde4f7c7c27199e30e2cf00b898453345f29fa4a08c51a1e24fa1d"
+    },
+    "eval-audit": {
+      "source": "ai-evals-course/evals-skills",
+      "sourceType": "github",
+      "skillPath": "skills/eval-audit/SKILL.md",
+      "computedHash": "35627e127be1b63f04102261d58d9dbad2fe7cd2025afd4021b5cf9de4f66bcd"
+    },
+    "evals-start": {
+      "source": "ai-evals-course/evals-skills",
+      "sourceType": "github",
+      "skillPath": "skills/evals-start/SKILL.md",
+      "computedHash": "3c4cd0648fac27c0f1793aa1aaeea6b525600cdb98ab6dd84ef5074a17f712e3"
+    },
+    "evaluate-rag": {
+      "source": "ai-evals-course/evals-skills",
+      "sourceType": "github",
+      "skillPath": "skills/evaluate-rag/SKILL.md",
+      "computedHash": "7b4aeea6c8aee3ae9eb9096bacccd88cd27608a407f40493ef0f0ee0a731f013"
+    },
+    "generate-synthetic-data": {
+      "source": "ai-evals-course/evals-skills",
+      "sourceType": "github",
+      "skillPath": "skills/generate-synthetic-data/SKILL.md",
+      "computedHash": "28958393fd8bec5f024a604797333cb5f14e950ea9fe241d180963e8e3746f05"
+    },
+    "validate-evaluator": {
+      "source": "ai-evals-course/evals-skills",
+      "sourceType": "github",
+      "skillPath": "skills/validate-evaluator/SKILL.md",
+      "computedHash": "eed115a4f77eb37b2584af5702e7ac76681f844924e50f320c55eace158d4dbf"
+    },
+    "write-judge-prompt": {
+      "source": "ai-evals-course/evals-skills",
+      "sourceType": "github",
+      "skillPath": "skills/write-judge-prompt/SKILL.md",
+      "computedHash": "a8edd5b275a406f8ab6bcd11a1a3530bec8bdf324f6c0a8d9d0fa46f32fc8edb"
+    }
+  }
+}
