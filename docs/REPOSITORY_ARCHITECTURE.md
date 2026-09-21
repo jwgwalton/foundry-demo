@@ -49,6 +49,27 @@ foundry-agents/
 |   |-- tests/
 |   |-- pyproject.toml
 |   `-- uv.lock
+|-- local/
+|   |-- dependencies/
+|   |   |-- src/dummy_systems/
+|   |   |   |-- business_api/
+|   |   |   |   |-- app.py
+|   |   |   |   |-- products.py
+|   |   |   |   `-- inventory.py
+|   |   |   |-- salon_mcp/
+|   |   |   |   `-- server.py
+|   |   |   `-- knowledge_seed/
+|   |   |       `-- seed.py
+|   |   |-- fixtures/
+|   |   |   |-- products/
+|   |   |   |-- inventory/
+|   |   |   |-- salons/
+|   |   |   `-- product-guidance/
+|   |   |-- tests/
+|   |   |-- Dockerfile
+|   |   |-- pyproject.toml
+|   |   `-- uv.lock
+|   `-- compose.yaml
 |-- pipelines/
 |   |-- agents/
 |   |   |-- weather-agent.yml
@@ -86,6 +107,49 @@ use different dependencies or runtime settings without conflict.
 Foundry and `azd` commands should run with the agent directory as their working
 directory. This is important because `azure.yaml`, `.foundry/`, and the source
 paths are resolved from that agent root.
+
+## Local Dummy Systems
+
+The fake external dependencies described in
+`docs/02-stub-apis-and-tools-spec.md` belong under `local/dependencies/`. This
+name makes their lifecycle explicit: they exist to support local development
+and tests and are not deployment artifacts.
+
+Use one Python project, dependency lock file, and Dockerfile for all dummy
+systems. Docker Compose builds that image once and starts it with different
+commands:
+
+- `business-api` runs one FastAPI application containing both the Product
+  Catalogue and Inventory endpoints;
+- `salon-mcp` runs the Salon CRM MCP server from the same image;
+- `azurite` uses the official Azurite image; and
+- `knowledge-seed` runs the repository's seed command from the shared dummy
+  systems image and exits after loading Azurite.
+
+Reusing one image avoids duplicate Dockerfiles and dependency installation
+while keeping the REST and MCP servers as separate processes. Running both
+servers in one container would require process supervision and couple their
+health and restart behavior for little benefit.
+
+The combined REST API should expose both domains from one port, for example
+`/products/...` and `/inventory/...`. Domain-specific route modules keep the
+code and tests readable without pretending they are independently deployed
+services.
+
+All deterministic data belongs under `local/dependencies/fixtures/`, grouped
+by domain. Cross-system scenarios should use the stable identifiers defined in
+the stub specification. Contract and integration tests should verify that the
+fixtures remain consistent.
+
+There are no Azure DevOps build or deployment pipelines for these dummy
+systems. Developers start them with `docker compose -f local/compose.yaml up`;
+CI can use the same command when integration tests require them.
+
+Managed Foundry toolboxes cannot call `localhost` on a developer machine. Local
+agent tests must therefore connect directly to the Compose service endpoints,
+or the APIs must be exposed through an explicitly approved reachable test
+endpoint. Creating a remote toolbox definition that references a local URL is
+not sufficient to make that URL reachable from Foundry.
 
 ## Why There Is No `infra/` Directory
 
@@ -246,12 +310,14 @@ external environment configuration
 toolbox definitions --> toolbox versions
                               |
                               v
-agent source --> container image --> Foundry agent version
+agent source --> agent image --> Foundry agent version
+
+local dummy source --> Compose services --> local agent/integration tests
 ```
 
 Toolboxes do not depend on agent deployments. Agent builds do not depend on a
-live Foundry environment. Only deployment combines an immutable image with
-specific toolbox versions and environment configuration.
+live Foundry environment. Local dummy systems support development and tests but
+do not participate in environment promotion.
 
 ## Repository Rules
 
