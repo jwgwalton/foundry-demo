@@ -1,0 +1,31 @@
+# Tokyo, April 2025
+
+## Summary
+
+Six-night trip with excellent food, transit and neighbourhood variety. Tokyo was
+rewarding but needed more planning energy than smaller European city breaks.
+
+## What Worked
+
+-   Public transport was reliable and made it easy to explore different areas.
+-   Food options were excellent, including casual restaurants and department
+    store food halls.
+-   Neighbourhood-focused days worked better than crossing the city repeatedly.
+-   Parks, bookshops and cafes gave good slower-paced breaks.
+
+## What Did Not Work
+
+-   Long transit days became tiring when the itinerary covered too many areas.
+-   Popular districts felt crowded at weekends.
+-   Jet lag made early starts harder than expected.
+
+## Weather Notes
+
+Mild spring weather was a good fit for walking. Rain was manageable because the
+city had strong indoor alternatives and reliable transit.
+
+## Future Recommendation
+
+Tokyo is a strong fit for food, neighbourhood exploration and transit-based
+itineraries. Keep each day geographically focused and avoid building the trip
+around too many cross-city transfers.
