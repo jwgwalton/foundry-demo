@@ -65,6 +65,11 @@ def create_connection(connection: dict[str, Any]) -> None:
     name = connection["name"]
     kind = connection.get("kind")
     target = connection.get("target")
+    target_env = connection.get("targetEnv")
+    if not target and target_env:
+        target = os.environ.get(target_env)
+        if not target:
+            raise ValueError(f"Environment variable {target_env} is required for {name}.")
     auth_type = connection.get("authType")
     if not kind or not target or not auth_type:
         raise ValueError(

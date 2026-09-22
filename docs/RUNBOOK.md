@@ -16,6 +16,8 @@ service-principal debugging steps live in
 -   Azure Developer CLI (`azd`) with the AI plugin available.
 -   A Microsoft Foundry project.
 -   A deployed model in that Foundry project.
+-   An Azure AI Search service for travel-review retrieval. See
+    [AZURE_AI_SEARCH_PREREQUISITES.md](AZURE_AI_SEARCH_PREREQUISITES.md).
 -   Python dependencies installed with `uv` or the project environment.
 -   A local `.env` file based on `.env.example`.
 
@@ -31,6 +33,9 @@ FOUNDRY_PROJECT_ENDPOINT="https://<account>.services.ai.azure.com/api/projects/<
 AZURE_AI_MODEL_DEPLOYMENT_NAME="gpt-4o"
 TOOLBOX_NAME="agent-tools"
 TOOLBOX_VERSION="1"
+AZURE_SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
+AZURE_OPENAI_ENDPOINT="https://<openai-resource>.openai.azure.com"
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME="text-embedding-3-large"
 ```
 
 ## Credential Setup For The Agent
@@ -93,12 +98,14 @@ uv run python scripts/deploy_tooling.py --validate-only
 ```
 
 For the deployment path, the script validates YAML, sets the active Foundry
-project with `azd ai project set`, checks or creates declared connections with
-`azd ai connection ...`, and creates the toolbox through
-`azd ai toolbox create --from-file`.
+project with `azd ai project set`, creates missing azd-managed connections with
+`azd ai connection create`, verifies required connections with
+`azd ai connection show`, uploads travel-review files to the Azure AI Search
+file knowledge source, and creates the toolbox through `azd ai toolbox create
+--from-file`.
 
 ```powershell
-uv run python scripts/deploy_tooling.py --all
+uv run python scripts/deploy_tooling.py
 ```
 
 Record the printed toolbox version and MCP endpoint. Update `.env`, then rerun

@@ -12,7 +12,7 @@ process.
 ## Create Or Update The Toolbox
 
 ```powershell
-uv run python scripts/deploy_tooling.py --all
+uv run python scripts/deploy_tooling.py
 ```
 
 If the script creates a new toolbox version, update `TOOLBOX_VERSION` in `.env`

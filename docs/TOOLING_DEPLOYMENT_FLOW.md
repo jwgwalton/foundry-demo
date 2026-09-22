@@ -7,6 +7,9 @@ dependencies such as Foundry connections, Azure AI Search indexes, Foundry IQ
 knowledge sources and OpenAPI specifications must be ready before the agent is
 deployed or run.
 
+Before running the full deployment, create the Azure AI Search service described
+in [AZURE_AI_SEARCH_PREREQUISITES.md](AZURE_AI_SEARCH_PREREQUISITES.md).
+
 This document describes the deployment order and the scaffolded scripts that
 will grow as more tools are added.
 
@@ -15,7 +18,8 @@ will grow as more tools are added.
 Use this order whenever toolbox tools change:
 
 1.  Sync project values from `.env` into the active azd environment.
-2.  Validate required Foundry connections are declared and already exist.
+2.  Create missing azd-managed Foundry connections and verify all required
+  connections exist.
 3.  Upload or index knowledge-source data.
 4.  Create a new toolbox version.
 5.  Sync the selected `TOOLBOX_NAME` and `TOOLBOX_VERSION` into azd.
@@ -47,6 +51,7 @@ scripts/
 └── tooling/
   ├── azd_cli.py
   ├── hash_state.py
+  ├── knowledge_sources.py
     ├── manifest.py
     ├── preflight.py
     └── toolbox_deploy.py
@@ -127,10 +132,41 @@ Declare data sources that must be uploaded, indexed or validated before toolbox
 creation.
 
 ```yaml
-knowledgeSources: []
+knowledgeSources:
+  - name: travel-reviews
+    type: azure_ai_search_file
+    description: Personal travel reviews and preference notes for TravelAgent.
+    searchEndpointEnv: AZURE_SEARCH_ENDPOINT
+    sourcePath: travel-reviews
+    indexName: travel-reviews
+    contentExtractionMode: minimal
+    apiVersion: 2026-08-01-preview
+    embeddingModel:
+      resourceUriEnv: AZURE_OPENAI_ENDPOINT
+      deploymentIdEnv: AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME
+      modelName: text-embedding-3-large
 ```
 
-Future Foundry IQ or Azure AI Search-backed review data can be added here:
+The `azure_ai_search_file` type creates or updates an Azure AI Search file
+knowledge source using the Azure AI Search `2026-08-01-preview` REST API, then uploads files from
+`sourcePath`. This follows the Azure AI Search file knowledge source pattern:
+the service processes uploaded files synchronously, extracts text, chunks content
+and creates embeddings before upload calls return.
+
+Required environment variables:
+
+```text
+AZURE_SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
+AZURE_OPENAI_ENDPOINT="https://<openai-resource>.openai.azure.com"
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME="text-embedding-3-large"
+```
+
+The identity running the sync must have permission to create knowledge sources on
+Azure AI Search, for example `Search Service Contributor`. The Azure AI Search
+service also needs access to the Azure OpenAI embedding deployment, usually via
+managed identity and `Cognitive Services User` on the Foundry/OpenAI resource.
+
+Future Foundry IQ-backed review data can be added here:
 
 ```yaml
 knowledgeSources:
@@ -153,7 +189,7 @@ description: Travel planning toolbox
 tools:
   - name: web_search
     type: web_search
-    searchContextSize: medium
+    search_context_size: medium
 ```
 
 Future tools should reference declared connections and knowledge sources:
@@ -161,18 +197,22 @@ Future tools should reference declared connections and knowledge sources:
 ```yaml
 tools:
   - name: travel_reviews
-    type: file_search
+    type: azure_ai_search
     knowledgeSource: travel-review-memory
     connection: travel-review-search
 ```
 
-## Script Phases
+## Script Modes
 
-Run every phase:
+Deploy the tooling stack:
 
 ```powershell
-uv run python scripts/deploy_tooling.py --all
+uv run python scripts/deploy_tooling.py
 ```
+
+Deployment mode always runs the complete sequence: set the active Foundry
+project, ensure required connections exist, sync knowledge-source data, then
+create a toolbox version only when the fingerprint changed.
 
 Validate local manifests and fingerprints without cloud calls:
 
@@ -180,25 +220,11 @@ Validate local manifests and fingerprints without cloud calls:
 uv run python scripts/deploy_tooling.py --validate-only
 ```
 
-Run only connection preflight:
+Force toolbox version creation even if the fingerprint is unchanged:
 
 ```powershell
-uv run python scripts/deploy_tooling.py --check-connections
+uv run python scripts/deploy_tooling.py --force
 ```
-
-Run only knowledge-source sync:
-
-```powershell
-uv run python scripts/deploy_tooling.py --sync-knowledge
-```
-
-Run only toolbox creation:
-
-```powershell
-uv run python scripts/deploy_tooling.py --create-toolbox
-```
-
-If no phase flag is provided, `deploy_tooling.py` behaves like `--all`.
 
 ## Current Implementation Status
 
@@ -210,11 +236,15 @@ Implemented now:
 -   `azd ai project set` before provisioning operations
 -   connection checks through `azd ai connection show`
 -   optional connection creation through `azd ai connection create`
--   no-op knowledge-source phase when no sources are declared
+-   post-create validation that each required connection exists
+-   Azure AI Search file knowledge source creation/update and file upload for
+  `travel-reviews/`
 -   web-search toolbox creation through `azd ai toolbox create --from-file`
 -   local fingerprinting of manifests, OpenAPI specs and declared source paths
   to skip unchanged toolbox deployments
 -   generated `.tooling-state/toolbox.azd.yaml` payload for the CLI
+-   local file upload state in `.tooling-state/knowledge-source-files.json` to
+  skip unchanged file uploads
 
 Designed extension points:
 
@@ -246,11 +276,16 @@ payload passed to `azd ai toolbox create --from-file`. This keeps
 `tooling/toolbox.yaml` reviewable while allowing the script to add or omit
 CLI-specific fields as needed.
 
+For Azure AI Search file knowledge sources, the script records uploaded file IDs
+and SHA-256 hashes in `.tooling-state/knowledge-source-files.json`. If a local
+file is unchanged, upload is skipped. If a file changed and a previous file ID is
+known, the script deletes the prior remote file before uploading the new content.
+
 When the fingerprint is unchanged, toolbox version creation is skipped by
 default. Use `--force` to create a new toolbox version anyway:
 
 ```powershell
-uv run python scripts/deploy_tooling.py --create-toolbox --force
+uv run python scripts/deploy_tooling.py --force
 ```
 
 ## Recommended Command Sequence
@@ -265,7 +300,7 @@ After editing tool manifests or review data:
 
 ```powershell
 uv run python scripts/sync_env_to_azd.py
-uv run python scripts/deploy_tooling.py --all
+uv run python scripts/deploy_tooling.py
 uv run python scripts/sync_env_to_azd.py --name TOOLBOX_NAME --name TOOLBOX_VERSION
 ```
 
@@ -294,3 +329,5 @@ Remove-Item Env:\AZURE_DEV_USER_AGENT
     configured toolbox version.
 -   Fail before agent deployment when a required connection, spec or knowledge
     source is missing.
+-   Track open Azure AI Search file knowledge-source upload issues in
+  [../TODO.md](../TODO.md).

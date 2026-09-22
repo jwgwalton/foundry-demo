@@ -1,0 +1,26 @@
+# Knowledge sources that must be prepared before toolbox version creation.
+#
+# Travel review files are uploaded directly to an Azure AI Search file knowledge
+# source for agentic retrieval. This uses the 2026-08-01-preview REST API.
+
+knowledgeSources:
+  - name: travel-reviews
+    type: azure_ai_search_file
+    description: Personal travel reviews and preference notes for TravelAgent.
+    searchEndpointEnv: AZURE_SEARCH_ENDPOINT
+    sourcePath: travel-reviews
+    indexName: travel-reviews
+    contentExtractionMode: minimal
+    apiVersion: 2026-08-01-preview
+    embeddingModel:
+      resourceUriEnv: AZURE_OPENAI_ENDPOINT
+      deploymentIdEnv: AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME
+      modelName: text-embedding-3-large
+
+# Future example:
+# knowledgeSources:
+#   - name: travel-review-memory
+#     type: foundry_iq
+#     sourcePath: travel-reviews
+#     indexName: travel-reviews
+#     create: manual

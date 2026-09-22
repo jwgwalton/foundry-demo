@@ -1,0 +1,163 @@
+# Azure AI Search Prerequisites
+
+## Purpose
+
+The travel agent uses Azure AI Search as the backing retrieval store for the
+`travel-reviews/` knowledge source. Create the Search service in the Azure
+portal before running the tooling deployment script.
+
+Portal reference: [Create a search service in the Azure portal](https://learn.microsoft.com/en-us/azure/search/search-create-service-portal).
+
+## What The Tooling Expects
+
+The repo tooling expects an existing Azure AI Search service and these local or
+CI environment values:
+
+```text
+AZURE_SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
+AZURE_OPENAI_ENDPOINT="https://<openai-resource>.openai.azure.com"
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME="text-embedding-3-large"
+```
+
+`scripts/deploy_tooling.py` uses these values to:
+
+1.  create or verify the Foundry project connection named `travel-review-search`
+2.  create or update the Azure AI Search file knowledge source named
+    `travel-reviews`
+3.  upload files from `travel-reviews/`
+4.  include the resulting Azure AI Search index in the Foundry toolbox YAML
+
+## Portal Creation Checklist
+
+Before creating the Search service, decide these fixed service properties:
+
+-   **Name**: globally unique under `search.windows.net`; lowercase letters,
+    digits and dashes only. This becomes the endpoint host name.
+-   **Region**: choose a region that supports the Azure AI Search and agentic
+    retrieval features you need. Prefer the same region as the Foundry/OpenAI
+    resource to reduce latency and avoid avoidable data movement.
+-   **Tier**: Free is useful for short-lived evaluation, but it has limits and
+    cannot scale. Basic or Standard is a safer choice once the demo becomes more
+    than a quick experiment.
+-   **Compute type**: use the default compute type unless you specifically need
+    confidential computing.
+
+Create the service in the portal:
+
+1.  Open the Azure portal.
+2.  Select **Create a resource**.
+3.  Search for **Azure AI Search**.
+4.  Select the subscription and resource group used for this demo.
+5.  Enter the service name, region, tier and compute type.
+6.  Review and create the service.
+7.  After deployment, open the service overview and copy the endpoint URL into
+    `AZURE_SEARCH_ENDPOINT`.
+
+## Demo Search Service Command
+
+For this demo, the Azure AI Search service was created with the Azure CLI rather
+than the portal:
+
+```powershell
+az search service create `
+    --name foundry-demo-ai-search `
+    --resource-group rg-joe_fls_test-7033 `
+    --sku Standard `
+    --partition-count 1 `
+    --replica-count 1 `
+    --location swedencentral
+```
+
+This creates a Standard tier Search service with one partition and one replica in
+Sweden Central. After creation, set:
+
+```text
+AZURE_SEARCH_ENDPOINT="https://foundry-demo-ai-search.search.windows.net"
+```
+
+## Authentication And Roles
+
+Prefer role-based access control rather than admin keys.
+
+In the Search service portal page:
+
+1.  Open **Settings** > **Keys**.
+2.  Use **Both** while assigning roles, then switch to **Role-based access
+    control** when keyless access is working.
+
+Required access:
+
+-   **Developer or CI identity** running `scripts/deploy_tooling.py` needs enough
+    Azure AI Search permission to create knowledge sources and upload files. Use
+    `Search Service Contributor` for the setup phase.
+-   **Runtime identity** used by the Foundry toolbox connection needs permission
+    to query the resulting Search content. Use the least-privileged Search
+    data-plane role that supports the selected toolbox/query path.
+-   **Azure AI Search service managed identity** needs `Cognitive Services User`
+    on the Azure OpenAI/Foundry resource that hosts the embedding deployment.
+
+If you use private networking, also confirm Search can reach the Foundry/OpenAI
+resource according to your network rules.
+
+## Embedding Deployment
+
+Deploy a text embedding model in Microsoft Foundry before uploading files. For
+this demo, the embedding deployment was created through the Microsoft Foundry UI.
+
+Use the Foundry UI to:
+
+1.  Open the Foundry project or resource used by this demo.
+2.  Deploy a text embedding model, such as `text-embedding-3-large`.
+3.  Copy the Azure OpenAI/Foundry resource endpoint into `AZURE_OPENAI_ENDPOINT`.
+4.  Copy the embedding deployment name into
+    `AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME`.
+
+The current manifest expects:
+
+```text
+AZURE_OPENAI_ENDPOINT="https://<openai-resource>.openai.azure.com"
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME="text-embedding-3-large"
+```
+
+If your deployment name differs, update `.env` and sync the value into the
+environment used by CI. The `modelName` in `tooling/knowledge-sources.yaml` must
+match the embedding model family, while the deployment name must match the model
+deployment you created in Foundry.
+
+## Cost And Limits Notes
+
+-   File knowledge sources are preview functionality and are subject to preview
+    limitations.
+-   Uploading files can incur Azure AI Search, embedding model and processing
+    charges.
+-   File knowledge sources have file-count, file-size and processing-time limits.
+-   Each upload is synchronous: Search processes, chunks, embeds and indexes the
+    file before the call returns.
+-   Use `minimal` extraction for JSON travel reviews unless you need richer
+    processing.
+
+## Validation
+
+After setting the environment values, run a no-cloud manifest check:
+
+```powershell
+uv run python scripts/deploy_tooling.py --validate-only
+```
+
+When the Search service, roles and embedding deployment are ready, run the full
+tooling deployment:
+
+```powershell
+uv run python scripts/deploy_tooling.py
+```
+
+If deployment fails, check:
+
+-   `AZURE_SEARCH_ENDPOINT` points at the Search service endpoint.
+-   the signed-in or CI identity has Search permissions.
+-   the Search service managed identity can access the embedding deployment.
+-   files under `travel-reviews/` are valid JSON files.
+-   the target region supports the required Azure AI Search/agentic retrieval
+    capabilities.
+
+Open investigation notes are tracked in [../TODO.md](../TODO.md).

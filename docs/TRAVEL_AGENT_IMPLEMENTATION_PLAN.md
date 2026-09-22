@@ -107,29 +107,29 @@ iteration.
 
 ## Proposed Demo Data
 
-Seed Foundry IQ or file-search-backed retrieval with small markdown files that
+Seed Foundry IQ or file-search-backed retrieval with small JSON files that
 represent personal travel memory:
 
 ```text
 travel-reviews/
-├── travel-preferences.md
-├── lisbon-2023.md
-├── barcelona-2024.md
-├── porto-2024.md
-├── seville-2025.md
-└── tokyo-2025.md
+├── travel-preferences.json
+├── lisbon-2023.json
+├── barcelona-2024.json
+├── porto-2024.json
+├── seville-2025.json
+└── tokyo-2025.json
 ```
 
 Example review content:
 
-```markdown
-# Lisbon, October 2023
-
-Stayed near Principe Real. Loved walkable neighbourhoods, viewpoints, cooler
-evenings, food markets and short transfers. Avoided overly packed tourist zones.
-
-Good fit when daytime temperatures were 18-24C. Rain was acceptable when there
-were indoor food and culture options.
+```json
+{
+    "documentType": "travel_review",
+    "destination": "Lisbon",
+    "visitDate": "October 2023",
+    "summary": "Stayed near Principe Real. Loved walkable neighbourhoods, viewpoints, cooler evenings, food markets and short transfers.",
+    "weatherNotes": "Good fit when daytime temperatures were 18-24C. Rain was acceptable when there were indoor food and culture options."
+}
 ```
 
 ## Iteration 0 --- Baseline Agent and Evaluation Harness

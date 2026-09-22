@@ -116,7 +116,7 @@ Create or update toolbox dependencies before running the agent. This uses the
 YAML manifests under `tooling/`.
 
 ```powershell
-uv run python scripts/deploy_tooling.py --all
+uv run python scripts/deploy_tooling.py
 ```
 
 Record the printed toolbox version and MCP endpoint. Update `.env` with the

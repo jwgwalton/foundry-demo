@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .azd_cli import connection_exists, create_connection
+from .knowledge_sources import sync_azure_ai_search_file_source
 from .manifest import ToolingManifest
 
 
@@ -30,6 +31,31 @@ def validate_manifest(manifest: ToolingManifest, repo_root: Path) -> None:
     connections = _named(manifest.connections, "connection")
     knowledge_sources = _named(manifest.knowledge_sources, "knowledge source")
 
+    for source in manifest.knowledge_sources:
+        source_type = source.get("type")
+        source_name = source.get("name")
+        source_path = source.get("sourcePath")
+        if not source_type or not source_name:
+            raise ValueError("Every knowledge source must define name and type.")
+        if source_type == "azure_ai_search_file":
+            required = ["searchEndpointEnv", "sourcePath", "indexName", "embeddingModel"]
+            missing = [field for field in required if field not in source]
+            if missing:
+                raise ValueError(
+                    f"Knowledge source {source_name} is missing required fields: "
+                    f"{', '.join(missing)}."
+                )
+            embedding = source["embeddingModel"]
+            for field in ("resourceUriEnv", "deploymentIdEnv", "modelName"):
+                if field not in embedding:
+                    raise ValueError(
+                        f"Knowledge source {source_name} embeddingModel is missing {field}."
+                    )
+        if source_path and not (repo_root / source_path).exists():
+            raise ValueError(
+                f"Knowledge source {source_name} references missing sourcePath {source_path}."
+            )
+
     for tool in tools:
         tool_name = tool.get("name")
         tool_type = tool.get("type")
@@ -56,7 +82,7 @@ def validate_manifest(manifest: ToolingManifest, repo_root: Path) -> None:
     print(f"Validated toolbox manifest for {toolbox_name} with {len(tools)} tool(s).")
 
 
-def check_connections(manifest: ToolingManifest) -> None:
+def ensure_connections(manifest: ToolingManifest) -> None:
     for connection in manifest.connections:
         name = connection["name"]
         create = connection.get("create", "manual")
@@ -66,6 +92,12 @@ def check_connections(manifest: ToolingManifest) -> None:
             print(f"Connection {name}: exists")
         elif create == "azd":
             create_connection(connection)
+            if not connection_exists(name):
+                raise ValueError(
+                    f"Connection {name} was created but could not be verified with "
+                    "azd ai connection show."
+                )
+            print(f"Connection {name}: created and verified")
         else:
             raise ValueError(
                 f"Connection {name} is required but was not found. Create it "
@@ -74,13 +106,17 @@ def check_connections(manifest: ToolingManifest) -> None:
             )
 
 
-def sync_knowledge_sources(manifest: ToolingManifest) -> None:
+def sync_knowledge_sources(manifest: ToolingManifest, repo_root: Path) -> None:
     if not manifest.knowledge_sources:
         print("No knowledge sources declared.")
         return
 
     for source in manifest.knowledge_sources:
-        print(
-            f"Knowledge source {source['name']}: sync is not implemented yet "
-            f"for type {source.get('type', '<missing>')}."
-        )
+        source_type = source.get("type")
+        if source_type == "azure_ai_search_file":
+            sync_azure_ai_search_file_source(source, repo_root)
+        else:
+            print(
+                f"Knowledge source {source['name']}: sync is not implemented yet "
+                f"for type {source.get('type', '<missing>')}."
+            )

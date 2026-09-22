@@ -1,0 +1,16 @@
+{
+  "documentType": "travel_preferences",
+  "title": "Travel Preferences",
+  "travellerProfile": "Prefers trips that are easy to navigate on foot, with good public transport, independent restaurants, food markets, coffee stops, viewpoints and compact neighbourhoods. Likes having a loose plan with optional alternatives rather than a packed schedule.",
+  "weatherFit": "Best travel weather is mild and comfortable for walking. Ideal daytime temperature is 18-24C. Temperatures above 30C reduce enjoyment unless the trip has beaches, shaded routes or long indoor breaks. Light rain is acceptable when there are good museums, restaurants or indoor markets nearby. Heavy rain, high humidity or strong wind should lower the recommendation.",
+  "tripStyle": "Likes shoulder-season travel, local neighbourhoods, independent hotels, scenic walks, public squares, bookshops, galleries and low-friction evenings. Prefers four to five night trips where the first day can be relaxed.",
+  "thingsToAvoid": [
+    "Overly crowded tourist cores",
+    "Long airport transfers",
+    "Car-dependent areas",
+    "Very early starts on consecutive days",
+    "Expensive resort areas",
+    "Destinations where most attractions require timed reservations far in advance"
+  ],
+  "scoringGuidance": "Increase the fit score when a destination has mild weather, strong food culture, walkable districts, reliable transit and good indoor alternatives. Reduce the score for extreme heat, heavy rain, unclear transport, event-driven crowding or a trip plan that depends on too many bookings."
+}

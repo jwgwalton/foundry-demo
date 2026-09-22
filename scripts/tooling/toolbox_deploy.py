@@ -18,9 +18,29 @@ class CreatedToolboxVersion:
 
 
 def _toolbox_payload(manifest: ToolingManifest) -> dict:
+    knowledge_sources = {source["name"]: source for source in manifest.knowledge_sources}
+    tools = []
+    for tool in manifest.toolbox.get("tools", []):
+        tool_payload = dict(tool)
+        knowledge_source_name = tool_payload.pop("knowledgeSource", None)
+        if knowledge_source_name:
+            source = knowledge_sources[knowledge_source_name]
+            if tool_payload["type"] == "azure_ai_search":
+                tool_payload.setdefault("azure_ai_search", {})
+                tool_payload["azure_ai_search"].setdefault(
+                    "indexes",
+                    [
+                        {
+                            "project_connection_id": tool_payload.pop("connection"),
+                            "index_name": source["indexName"],
+                        }
+                    ],
+                )
+        tools.append(tool_payload)
+
     payload: dict = {
         "description": manifest.toolbox.get("description", "Foundry toolbox"),
-        "tools": manifest.toolbox.get("tools", []),
+        "tools": tools,
     }
     connections = [
         {"name": connection["name"]}
