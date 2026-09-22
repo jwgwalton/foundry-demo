@@ -710,6 +710,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -721,6 +722,7 @@ requires-dist = [
     { name = "langchain-openai" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.37" },
     { name = "python-dotenv" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
 ]
 
 [[package]]

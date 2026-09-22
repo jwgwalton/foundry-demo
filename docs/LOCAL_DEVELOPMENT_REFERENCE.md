@@ -112,15 +112,16 @@ AZURE_CLIENT_SECRET="<password>"
 
 ## Create Or Update The Toolbox Manually
 
-Create the Foundry toolbox after changing the toolbox definition. The current
-first iteration creates a web-search toolbox.
+Create or update toolbox dependencies before running the agent. This uses the
+YAML manifests under `tooling/`.
 
 ```powershell
-uv run python scripts/create_toolboxes.py
+uv run python scripts/deploy_tooling.py --all
 ```
 
 Record the printed toolbox version and MCP endpoint. Update `.env` with the
-toolbox version if a new version is created.
+toolbox version if a new version is created, then sync `TOOLBOX_NAME` and
+`TOOLBOX_VERSION` into azd if needed.
 
 ## Run The Agent Directly
 

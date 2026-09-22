@@ -8,6 +8,7 @@ dependencies = [
     "langchain",
     "langchain-openai",
     "python-dotenv",
+    "pyyaml>=6.0.2",
     "opentelemetry-exporter-otlp-proto-http>=1.37",
     "langchain-mcp-adapters>=0.3.2",
     "httpx>=0.28.1",
