@@ -1,0 +1,38 @@
+[
+  {
+    "sku": "PRODUCT-1042",
+    "name": "Professional Permanent Colour 8/1",
+    "category": "hair_colour",
+    "product_line": "Professional Colour",
+    "size_ml": 60,
+    "status": "active",
+    "markets": ["GB", "DE", "FR"]
+  },
+  {
+    "sku": "PRODUCT-2091",
+    "name": "Professional Colour Care Shampoo",
+    "category": "hair_care",
+    "product_line": "Professional Care",
+    "size_ml": 250,
+    "status": "active",
+    "markets": ["GB", "DE"]
+  },
+  {
+    "sku": "PRODUCT-3010",
+    "name": "Professional Permanent Colour 8/1 Classic",
+    "category": "hair_colour",
+    "product_line": "Professional Colour",
+    "size_ml": 60,
+    "status": "discontinued",
+    "markets": ["GB"]
+  },
+  {
+    "sku": "PRODUCT-4017",
+    "name": "Professional Permanent Colour 9/0",
+    "category": "hair_colour",
+    "product_line": "Professional Colour",
+    "size_ml": 60,
+    "status": "active",
+    "markets": ["DE", "FR"]
+  }
+]
