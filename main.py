@@ -1,47 +1,9 @@
-"""Sample 02 - Tool call & tool result messages over the Responses API.
-
-Demonstrates that intermediate tool calls and tool results are surfaced
-to the client as ``function_call`` / ``function_call_output`` output
-items - in both non-streaming JSON responses and SSE streams.
-
-The agent uses a Foundry-deployed Azure OpenAI chat model and one local
-tool, ``get_weather``.
-
-Required environment variables (set in `.env` or your shell):
-
-    FOUNDRY_PROJECT_ENDPOINT        e.g. https://<acct>.services.ai.azure.com/api/projects/<proj>
-    AZURE_AI_MODEL_DEPLOYMENT_NAME  e.g. gpt-4o   (defaults to "gpt-4o")
-    PORT                            optional, defaults to 8088
-
-Run::
-
-    az login
-    cp .env.example .env  # then edit the values
-    python main.py
-
-Then in another terminal:
-
-    # Non-streaming -- the JSON `output` array contains 3 items:
-    #   [0] function_call(get_weather)
-    #   [1] function_call_output(<weather string>)
-    #   [2] message(<final assistant text>)
-    curl -X POST http://127.0.0.1:8088/responses -H 'Content-Type: application/json' -d '{"input":"What is the weather in Seattle?","model":"gpt-4o"}'
-
-    # Streaming -- you should see the events arrive in this order:
-    #   response.output_item.added/done   (function_call)
-    #   response.output_item.added/done   (function_call_output)
-    #   response.output_item.added        (message)
-    #   response.output_text.delta * N
-    #   response.output_text.done
-    #   response.output_item.done         (message)
-    #   response.completed
-    curl -N -X POST http://127.0.0.1:8088/responses -H 'Content-Type: application/json' -d '{"input":"What is the weather in Tokyo?","model":"gpt-4o","stream":true}'
-"""
 from __future__ import annotations
 
 import asyncio
 import os
-from typing import  List
+from pathlib import Path
+from typing import List
 
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
@@ -52,7 +14,7 @@ from langchain_openai import ChatOpenAI
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 
 from langchain_azure_ai.agents.hosting import ResponsesHostServer
 from langchain_azure_ai.callbacks.tracers import enable_auto_tracing
@@ -63,6 +25,31 @@ from langchain_core.tools import BaseTool
 load_dotenv()
 
 _AZURE_AI_SCOPE = "https://ai.azure.com/.default"
+
+AGENT_INSTRUCTIONS = """You are TravelAgent, a travel timing and planning assistant.
+
+Your job is to help users decide whether a destination and travel window are a
+good fit by combining available tool evidence with clear reasoning. Start with
+current travel context from web search when the user asks about whether now, a
+season, or a date range is a good time to visit. Use weather tools when forecast
+or climate conditions are relevant. Use personal review or preference retrieval
+tools when the user asks whether a destination fits their tastes or when prior
+travel memory would improve the recommendation.
+
+Ask a concise clarifying question when the destination or travel dates are too
+ambiguous to answer well. Do not claim live weather, current events, personal
+preferences, bookings, reservations, prices, or availability unless that
+information came from tools or from the user.
+
+Keep recommendations practical and grounded. Separate evidence from judgement:
+summarize the tool findings first, then explain the trade-offs, then give a
+clear go / wait / adjust-dates recommendation. Mention uncertainty and missing
+information when it matters.
+
+Do not make bookings, payments, reservations, calendar entries, or persistent
+changes unless the user explicitly approves the exact action and content first.
+"""
+
 
 async def _load_toolbox_tools(toolbox_name: str, toolbox_version: str) -> List[BaseTool]:
     """Fetch the LangChain-compatible tool list from the Foundry Toolbox.
@@ -99,7 +86,21 @@ def _build_chat_model() -> ChatOpenAI:
     )
 
 
-def main() -> None:
+def setup_logging() -> None:
+    trace_file = os.environ.get("OTEL_TRACES_FILE")
+    if trace_file:
+        trace_path = Path(trace_file)
+        trace_path.parent.mkdir(parents=True, exist_ok=True)
+
+        provider = TracerProvider()
+        trace_output = trace_path.open("a", encoding="utf-8")
+        provider.add_span_processor(
+            BatchSpanProcessor(ConsoleSpanExporter(out=trace_output))
+        )
+        trace.set_tracer_provider(provider)
+        enable_auto_tracing()
+        return
+
     if os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") or os.environ.get(
         "OTEL_EXPORTER_OTLP_ENDPOINT"
     ):
@@ -113,11 +114,15 @@ def main() -> None:
         # FOUNDRY_PROJECT_ENDPOINT (project-managed App Insights).
         enable_auto_tracing(auto_configure_azure_monitor=True)
 
+
+def main() -> None:
+    setup_logging()
+
     toolbox_name = os.environ["TOOLBOX_NAME"]
     toolbox_version = os.environ["TOOLBOX_VERSION"]
 
     tools = asyncio.run(_load_toolbox_tools(toolbox_name, toolbox_version))
-    graph = create_agent(_build_chat_model(), tools=tools)
+    graph = create_agent(model=_build_chat_model(), system_prompt=AGENT_INSTRUCTIONS, tools=tools)
 
     port = int(os.environ.get("PORT", "8088"))
     # ResponsesHostServer adapts the compiled LangGraph runnable into a REST endpoint compatible with the OpenAI Responses protocol

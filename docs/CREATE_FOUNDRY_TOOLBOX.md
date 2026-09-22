@@ -13,6 +13,6 @@ What are connections?
 
 ## Process
 
-```python
-uv run create_toolboxes.py
+```powershell
+uv run python scripts/create_toolboxes.py
 ```
