@@ -3,3 +3,4 @@ secrets.md
 .venv
 .env
 .agents/skills
+__pycache__/
