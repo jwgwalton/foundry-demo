@@ -42,6 +42,61 @@
 * docker build . -t foundry_agent      
 * docker run --env-file .env -p 8088:8088 foundry_agent    
 
+## Set up local dependencies
+
+The local dependencies are synthetic services used by the agent during local
+development and integration tests. Start them from the repository root.
+
+### Prerequisites
+
+- Docker Desktop is installed and its Linux engine is running.
+- Docker Compose is available through `docker compose`.
+- `uv` is installed if you want to run the local dependency tests directly.
+
+### Start the Product Catalogue API
+
+Build and start the local dependency stack:
+
+```powershell
+docker compose -f local/compose.yaml up --build
+```
+
+The current stack starts `business-api` on `http://localhost:8001`. This
+Iteration 1 service is anonymous and provides the Product Catalogue endpoint:
+
+```powershell
+Invoke-RestMethod `
+    -Uri "http://localhost:8001/products/PRODUCT-1042" `
+    -Method Get
+```
+
+The API should return the deterministic synthetic product fixture. The health
+endpoint can be used to verify readiness:
+
+```powershell
+Invoke-RestMethod `
+    -Uri "http://localhost:8001/health" `
+    -Method Get
+```
+
+OpenAPI documentation is available at:
+
+- Swagger UI: `http://localhost:8001/docs`
+- OpenAPI JSON: `http://localhost:8001/openapi.json`
+
+Run the local dependency tests without Docker:
+
+```powershell
+uv sync --directory local/dependencies --locked --no-dev --no-install-project
+uv run --project local/dependencies --group test pytest local/dependencies/tests/test_products.py -q
+```
+
+Stop the local services with `Ctrl+C`, or from another terminal run:
+
+```powershell
+docker compose -f local/compose.yaml down
+```
+
 ## Create the toolbox
 This needs to only be ran once per change to the file.
 ```python
