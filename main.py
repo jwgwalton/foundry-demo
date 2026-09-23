@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import List
 
@@ -19,7 +20,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExport
 from langchain_azure_ai.agents.hosting import ResponsesHostServer
 from langchain_azure_ai.callbacks.tracers import enable_auto_tracing
 from langchain_azure_ai.tools import AzureAIProjectToolbox
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, tool
 
 
 load_dotenv()
@@ -49,6 +50,12 @@ information when it matters.
 Do not make bookings, payments, reservations, calendar entries, or persistent
 changes unless the user explicitly approves the exact action and content first.
 """
+
+
+@tool
+def get_current_date() -> str:
+    """Get the current date in UTC, formatted as YYYY-MM-DD."""
+    return datetime.now(UTC).date().isoformat()
 
 
 async def _load_toolbox_tools(toolbox_name: str, toolbox_version: str) -> List[BaseTool]:
@@ -122,6 +129,7 @@ def main() -> None:
     toolbox_version = os.environ["TOOLBOX_VERSION"]
 
     tools = asyncio.run(_load_toolbox_tools(toolbox_name, toolbox_version))
+    tools.append(get_current_date)
     graph = create_agent(model=_build_chat_model(), system_prompt=AGENT_INSTRUCTIONS, tools=tools)
 
     port = int(os.environ.get("PORT", "8088"))

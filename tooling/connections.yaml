@@ -1,0 +1,29 @@
+# Foundry project connections required by toolbox tools.
+#
+# Keep secrets out of this file. Store credentials in Foundry connections,
+# Key Vault, or another approved secret store, then reference the connection by
+# name from toolbox.yaml.
+
+connections:
+  - name: web_search
+    type: none
+    requiredFor:
+      - web_search
+    create: not_required
+
+  - name: travel-review-search
+    type: azure_ai_search
+    kind: cognitive-search
+    targetEnv: AZURE_SEARCH_ENDPOINT
+    authType: api-key
+    secretEnv: SEARCH_QUERY_KEY
+    requiredFor:
+      - travel_reviews
+    create: azd
+
+  # Future example:
+  # - name: travel-places-api-key
+  #   type: api_key
+  #   requiredFor:
+  #     - places_openapi
+  #   create: manual

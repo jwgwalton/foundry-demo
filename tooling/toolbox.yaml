@@ -1,0 +1,25 @@
+name: agent-tools
+description: Travel planning toolbox
+
+tools:
+  - name: web_search
+    type: web_search
+    search_context_size: medium
+
+  - name: travel_reviews
+    type: azure_ai_search
+    description: Search personal travel reviews and preference notes.
+    knowledgeSource: travel-reviews
+    connection: travel-review-search
+
+  # Future OpenAPI example:
+  # - name: weather
+  #   type: openapi
+  #   spec: tooling/openapi/open-meteo.yaml
+  #   connection: none
+
+  # Future Foundry IQ / file-search example:
+  # - name: travel_reviews
+  #   type: file_search
+  #   knowledgeSource: travel-review-memory
+  #   connection: travel-review-search

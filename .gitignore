@@ -4,3 +4,6 @@ secrets.md
 .env
 .agents/skills
 .traces/
+.tooling-state/
+!.tooling-state/.gitkeep
+__pycache__/
