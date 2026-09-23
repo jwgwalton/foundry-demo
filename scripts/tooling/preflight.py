@@ -139,12 +139,20 @@ def validate_manifest(manifest: ToolingManifest, repo_root: Path) -> None:
     print(f"Validated toolbox manifest for {toolbox_name} with {len(tools)} tool(s).")
 
 
-def ensure_connections(manifest: ToolingManifest) -> None:
+def ensure_connections(manifest: ToolingManifest, refresh: bool = False) -> None:
     for connection in manifest.connections:
         name = connection["name"]
         create = connection.get("create", "manual")
         if connection.get("type") == "none" or create == "not_required":
             print(f"Connection {name}: not required")
+        elif refresh and create == "azd":
+            create_connection(connection, replace=True)
+            if not connection_exists(name):
+                raise ValueError(
+                    f"Connection {name} was refreshed but could not be verified with "
+                    "azd ai connection show."
+                )
+            print(f"Connection {name}: refreshed and verified")
         elif connection_exists(name):
             print(f"Connection {name}: exists")
         elif create == "azd":

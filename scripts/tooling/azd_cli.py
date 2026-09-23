@@ -103,7 +103,7 @@ def toolbox_exists(name: str) -> bool:
     return completed.returncode == 0
 
 
-def create_connection(connection: dict[str, Any]) -> None:
+def create_connection(connection: dict[str, Any], replace: bool = False) -> None:
     name = connection["name"]
     kind = connection.get("kind")
     target = connection.get("target")
@@ -136,6 +136,8 @@ def create_connection(connection: dict[str, Any]) -> None:
         "--auth-type",
         auth_type,
     ]
+    if replace:
+        args.append("--force")
 
     if auth_type == "api-key":
         secret_env = connection.get("secretEnv")

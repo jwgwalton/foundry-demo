@@ -18,6 +18,9 @@ from tooling.preflight import (
 from tooling.toolbox_deploy import create_toolbox_version
 
 
+load_dotenv(dotenv_path=Path.cwd() / ".env", override=True)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Prepare Foundry toolbox dependencies before deploying the agent."
@@ -45,11 +48,18 @@ def parse_args() -> argparse.Namespace:
             "Does not force toolbox version creation."
         ),
     )
+    parser.add_argument(
+        "--refresh-connections",
+        action="store_true",
+        help=(
+            "Replace azd-managed Foundry connections with values from the current "
+            "environment. Does not force toolbox version creation."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> int:
-    load_dotenv()
     args = parse_args()
     repo_root = Path.cwd()
     tooling_root = repo_root / args.tooling_root
@@ -69,19 +79,25 @@ def main() -> int:
         fingerprint_unchanged = (
             previous_state is not None and previous_state.fingerprint == fingerprint
         )
-        if fingerprint_unchanged and not args.force and not args.reconcile:
+        if (
+            fingerprint_unchanged
+            and not args.force
+            and not args.reconcile
+            and not args.refresh_connections
+        ):
             assert previous_state is not None
             print(
                 "Tooling fingerprint unchanged; skipping cloud reconciliation and "
-                "toolbox version creation. Use --reconcile to verify cloud state or "
-                "--force to create a toolbox version. Current recorded version: "
+                "toolbox version creation. Use --reconcile to verify cloud state, "
+                "--refresh-connections to replace azd-managed connections, or --force "
+                "to create a toolbox version. Current recorded version: "
                 f"{previous_state.toolbox_version}."
             )
             return 0
 
         set_project(os.environ["FOUNDRY_PROJECT_ENDPOINT"].rstrip("/"))
 
-        ensure_connections(manifest)
+        ensure_connections(manifest, refresh=args.refresh_connections)
         sync_knowledge_sources(manifest, repo_root)
 
         if fingerprint_unchanged and not args.force:

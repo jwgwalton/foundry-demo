@@ -245,6 +245,13 @@ the fingerprint is unchanged:
 uv run python scripts/deploy_tooling.py --reconcile
 ```
 
+Replace azd-managed Foundry connections with values from the current environment
+after rotating a secret such as `SEARCH_QUERY_KEY`:
+
+```powershell
+uv run python scripts/deploy_tooling.py --refresh-connections
+```
+
 ## Current Implementation Status
 
 Implemented now:
@@ -311,11 +318,13 @@ the stale remote document.
 
 When the fingerprint is unchanged, cloud reconciliation and toolbox version
 creation are skipped by default. Use `--reconcile` to check and repair cloud
-dependencies without creating a new toolbox version, or use `--force` to create a
-new toolbox version anyway:
+dependencies without creating a new toolbox version, use `--refresh-connections`
+after rotating credentials for azd-managed connections, or use `--force` to
+create a new toolbox version anyway:
 
 ```powershell
 uv run python scripts/deploy_tooling.py --reconcile
+uv run python scripts/deploy_tooling.py --refresh-connections
 uv run python scripts/deploy_tooling.py --force
 ```
 
