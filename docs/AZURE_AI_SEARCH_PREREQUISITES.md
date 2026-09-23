@@ -15,7 +15,7 @@ CI environment values:
 
 ```text
 AZURE_SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
-SEARCH_QUERY_KEY="<search-service-admin-key>"
+SEARCH_QUERY_KEY="<search-service-query-key>"
 AZURE_OPENAI_ENDPOINT="https://<openai-resource>.openai.azure.com"
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME="text-embedding-3-large"
 ```
@@ -53,8 +53,11 @@ Create the service in the portal:
 6.  Review and create the service.
 7.  After deployment, open the service overview and copy the endpoint URL into
     `AZURE_SEARCH_ENDPOINT`.
-8.  Open **Settings** > **Keys** and copy an admin key into `SEARCH_ADMIN_KEY`
+8.  Open **Settings** > **Keys** and copy a query key into `SEARCH_QUERY_KEY`
     for Foundry project connection creation.
+9.  Open **Settings** > **Identity**, turn on the system-assigned managed
+    identity and save. Azure AI Search uses this identity when its vectorizer
+    calls the Foundry/OpenAI embedding deployment.
 
 ## Demo Search Service Command
 
@@ -105,11 +108,66 @@ Required access:
 -   **Runtime identity** used by the Foundry toolbox connection needs permission
     to query the resulting Search content. Use the least-privileged Search
     data-plane role that supports the selected toolbox/query path.
--   **Azure AI Search service managed identity** needs `Cognitive Services User`
-    on the Azure OpenAI/Foundry resource that hosts the embedding deployment.
+-   **Azure AI Search service managed identity** needs `Cognitive Services
+    OpenAI User` on the Azure OpenAI/Foundry resource that hosts the embedding
+    deployment. Without this, vector queries can fail with: `Could not complete
+    vectorization action. The service failed to authenticate to the vectorization
+    endpoint.`
 
 If you use private networking, also confirm Search can reach the Foundry/OpenAI
 resource according to your network rules.
+
+## Grant Search Access To The Embedding Deployment
+
+Integrated vectorization is performed by the Azure AI Search service, not by the
+agent host or the local deployment script. When the index vectorizer references a
+Foundry/OpenAI embedding deployment, the Search service must authenticate to that
+resource with its managed identity.
+
+For this demo, grant `foundry-demo-ai-search` access to the Azure AI resource
+`joe-fls-test-7033-resource`:
+
+```powershell
+$resourceGroup = "rg-joe_fls_test-7033"
+$searchService = "foundry-demo-ai-search"
+$aiResource = "joe-fls-test-7033-resource"
+
+az search service update `
+    --name $searchService `
+    --resource-group $resourceGroup `
+    --identity-type SystemAssigned
+
+$searchPrincipalId = az search service show `
+    --name $searchService `
+    --resource-group $resourceGroup `
+    --query "identity.principalId" `
+    -o tsv
+
+$aiResourceId = az cognitiveservices account show `
+    --name $aiResource `
+    --resource-group $resourceGroup `
+    --query "id" `
+    -o tsv
+
+az role assignment create `
+    --assignee-object-id $searchPrincipalId `
+    --assignee-principal-type ServicePrincipal `
+    --role "Cognitive Services OpenAI User" `
+    --scope $aiResourceId
+```
+
+After assigning the role, wait a few minutes for RBAC propagation before testing
+Search vector queries or agent tool calls again.
+
+Portal equivalent:
+
+1.  Open the Azure AI Search service.
+2.  Go to **Settings** > **Identity**.
+3.  Turn **System assigned** to **On** and save.
+4.  Open the Azure AI/Foundry resource that hosts the embedding deployment.
+5.  Go to **Access control (IAM)** > **Add role assignment**.
+6.  Select the `Cognitive Services OpenAI User` role.
+7.  Assign access to the managed identity for the Azure AI Search service.
 
 ## Embedding Deployment
 
@@ -170,6 +228,9 @@ If deployment fails, check:
     permissions. A `Forbidden` error during document upload usually means the
     identity needs `Search Index Data Contributor` on the Search service.
 -   the Search service managed identity can access the embedding deployment.
+    For vectorization authentication failures, confirm the Search service has a
+    system-assigned managed identity and that identity has `Cognitive Services
+    OpenAI User` on the Azure AI/Foundry resource.
 -   files under `travel-reviews/` are valid JSON files.
 -   the target region supports the required Azure AI Search/agentic retrieval
     capabilities.
