@@ -1,10 +1,67 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from .azd_cli import connection_exists, create_connection
+from .azd_cli import connection_exists, create_connection, ensure_azd_available
 from .knowledge_sources import sync_azure_ai_search_file_source
 from .manifest import ToolingManifest
+
+
+def _required_env_names(manifest: ToolingManifest) -> list[str]:
+    names = {"FOUNDRY_PROJECT_ENDPOINT"}
+    for connection in manifest.connections:
+        target_env = connection.get("targetEnv")
+        if target_env:
+            names.add(target_env)
+        secret_env = connection.get("secretEnv")
+        if secret_env:
+            names.add(secret_env)
+        for item in connection.get("customKeys", []):
+            item_secret_env = item.get("secretEnv")
+            if item_secret_env:
+                names.add(item_secret_env)
+
+    for source in manifest.knowledge_sources:
+        search_endpoint_env = source.get("searchEndpointEnv")
+        if search_endpoint_env:
+            names.add(search_endpoint_env)
+        embedding = source.get("embeddingModel", {})
+        for field in ("resourceUriEnv", "deploymentIdEnv", "modelNameEnv"):
+            env_name = embedding.get(field)
+            if env_name:
+                names.add(env_name)
+    return sorted(names)
+
+
+def preflight_deployment_context(manifest: ToolingManifest) -> None:
+    ensure_azd_available()
+    missing = [name for name in _required_env_names(manifest) if not os.environ.get(name)]
+    if missing:
+        raise ValueError(
+            "Missing required environment variable(s): " + ", ".join(missing) + "."
+        )
+
+    print("Deployment context:")
+    print(f"  Foundry project endpoint: {os.environ['FOUNDRY_PROJECT_ENDPOINT'].rstrip('/')}")
+    for source in manifest.knowledge_sources:
+        if source.get("type") != "azure_ai_search_file":
+            continue
+        search_endpoint_env = source["searchEndpointEnv"]
+        embedding = source["embeddingModel"]
+        print(f"  Search endpoint ({search_endpoint_env}): {os.environ[search_endpoint_env]}")
+        print(
+            f"  Embedding endpoint ({embedding['resourceUriEnv']}): "
+            f"{os.environ[embedding['resourceUriEnv']]}"
+        )
+        print(
+            f"  Embedding deployment ({embedding['deploymentIdEnv']}): "
+            f"{os.environ[embedding['deploymentIdEnv']]}"
+        )
+        print(
+            f"  Embedding model ({embedding['modelNameEnv']}): "
+            f"{os.environ[embedding['modelNameEnv']]}"
+        )
 
 
 def _named(items: list[dict], kind: str) -> dict[str, dict]:
@@ -46,7 +103,7 @@ def validate_manifest(manifest: ToolingManifest, repo_root: Path) -> None:
                     f"{', '.join(missing)}."
                 )
             embedding = source["embeddingModel"]
-            for field in ("resourceUriEnv", "deploymentIdEnv", "modelName"):
+            for field in ("resourceUriEnv", "deploymentIdEnv", "modelNameEnv"):
                 if field not in embedding:
                     raise ValueError(
                         f"Knowledge source {source_name} embeddingModel is missing {field}."

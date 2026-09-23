@@ -15,7 +15,8 @@ connections:
     type: azure_ai_search
     kind: cognitive-search
     targetEnv: AZURE_SEARCH_ENDPOINT
-    authType: project-managed-identity
+    authType: api-key
+    secretEnv: SEARCH_QUERY_KEY
     requiredFor:
       - travel_reviews
     create: azd

@@ -6,3 +6,4 @@ secrets.md
 .traces/
 .tooling-state/
 !.tooling-state/.gitkeep
+__pycache__/

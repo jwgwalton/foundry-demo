@@ -1,3 +1,6 @@
+"""
+This file is used so locally running azure agents get the correct environment variables from a .env file into the active azd environment.
+"""
 from __future__ import annotations
 
 import argparse
@@ -19,7 +22,7 @@ SECRET_NAMES = {
     "AZURE_PASSWORD",
 }
 SECRET_NAME_PATTERN = re.compile(
-    r"(SECRET|PASSWORD|TOKEN|PRIVATE_KEY|API_KEY)$",
+    r"(SECRET|PASSWORD|TOKEN|PRIVATE_KEY|API_KEY|QUERY_KEY)$",
     re.IGNORECASE,
 )
 

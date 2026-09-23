@@ -15,6 +15,7 @@ CI environment values:
 
 ```text
 AZURE_SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
+SEARCH_QUERY_KEY="<search-service-admin-key>"
 AZURE_OPENAI_ENDPOINT="https://<openai-resource>.openai.azure.com"
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME="text-embedding-3-large"
 ```
@@ -52,6 +53,8 @@ Create the service in the portal:
 6.  Review and create the service.
 7.  After deployment, open the service overview and copy the endpoint URL into
     `AZURE_SEARCH_ENDPOINT`.
+8.  Open **Settings** > **Keys** and copy an admin key into `SEARCH_ADMIN_KEY`
+    for Foundry project connection creation.
 
 ## Demo Search Service Command
 
@@ -73,11 +76,18 @@ Sweden Central. After creation, set:
 
 ```text
 AZURE_SEARCH_ENDPOINT="https://foundry-demo-ai-search.search.windows.net"
+SEARCH_QUERY_KEY="<query-key-from-the-search-service>"
 ```
 
 ## Authentication And Roles
 
 Prefer role-based access control rather than admin keys.
+
+The current Foundry project connection is created with `azd ai connection create`
+using API-key authentication. The deployment tooling reads the key from
+`SEARCH_QUERY_KEY` and fails before invoking `azd` if that variable is missing.
+Keep this value in `.env`, the local shell environment or a CI secret provider;
+do not commit it.
 
 In the Search service portal page:
 
@@ -88,8 +98,10 @@ In the Search service portal page:
 Required access:
 
 -   **Developer or CI identity** running `scripts/deploy_tooling.py` needs enough
-    Azure AI Search permission to create knowledge sources and upload files. Use
-    `Search Service Contributor` for the setup phase.
+    Azure AI Search permission to create or update indexes, create knowledge
+    sources and upload documents. Use `Search Service Contributor` for Search
+    service setup and `Search Index Data Contributor` for document upload during
+    the setup phase.
 -   **Runtime identity** used by the Foundry toolbox connection needs permission
     to query the resulting Search content. Use the least-privileged Search
     data-plane role that supports the selected toolbox/query path.
@@ -154,7 +166,9 @@ uv run python scripts/deploy_tooling.py
 If deployment fails, check:
 
 -   `AZURE_SEARCH_ENDPOINT` points at the Search service endpoint.
--   the signed-in or CI identity has Search permissions.
+-   the signed-in or CI identity has Search management and data-plane
+    permissions. A `Forbidden` error during document upload usually means the
+    identity needs `Search Index Data Contributor` on the Search service.
 -   the Search service managed identity can access the embedding deployment.
 -   files under `travel-reviews/` are valid JSON files.
 -   the target region supports the required Azure AI Search/agentic retrieval

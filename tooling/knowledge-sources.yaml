@@ -15,7 +15,7 @@ knowledgeSources:
     embeddingModel:
       resourceUriEnv: AZURE_OPENAI_ENDPOINT
       deploymentIdEnv: AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME
-      modelName: text-embedding-3-large
+      modelNameEnv: AZURE_OPENAI_EMBEDDING_MODEL_NAME
 
 # Future example:
 # knowledgeSources:

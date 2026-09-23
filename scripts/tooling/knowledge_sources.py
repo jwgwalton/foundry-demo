@@ -6,33 +6,41 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
-import httpx
+from azure.core.exceptions import HttpResponseError
 from azure.core.credentials import TokenCredential
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from azure.search.documents import SearchClient
+from azure.search.documents.indexes import SearchIndexClient
+from azure.search.documents.indexes.models import (
+    AzureOpenAIVectorizer,
+    AzureOpenAIVectorizerParameters,
+    HnswAlgorithmConfiguration,
+    SearchField,
+    SearchIndex,
+    SearchIndexKnowledgeSource,
+    SearchIndexKnowledgeSourceParameters,
+    SemanticConfiguration,
+    SemanticField,
+    SemanticPrioritizedFields,
+    SemanticSearch,
+    VectorSearch,
+    VectorSearchProfile,
+)
+from openai import OpenAI
 
 from .hash_state import STATE_DIR
 
 
 KNOWLEDGE_FILE_STATE = STATE_DIR / "knowledge-source-files.json"
-SEARCH_SCOPE = "https://search.azure.com/.default"
-
-# Azure AI Search file knowledge sources are a preview surface. The Learn docs
-# show SDK methods such as SearchIndexClient.upload_knowledge_source_file and
-# models such as FileKnowledgeSource, but the REST contract is available now:
-# https://learn.microsoft.com/en-us/azure/search/agentic-knowledge-source-how-to-file?pivots=rest
-# We tried azure-search-documents 11.7.0b1 and 12.0.0; neither exposed those
-# file-operation methods or models in this environment. Use the documented
-# 2026-08-01-preview REST APIs directly until the Python package exposes the
-# preview methods and models.
+COGNITIVE_SERVICES_SCOPE = "https://cognitiveservices.azure.com/.default"
 
 
 @dataclass(frozen=True)
 class LocalKnowledgeFile:
-    path: Path
     relative_name: str
     digest: str
+    document: dict[str, Any]
 
 
 def _env(name: str) -> str:
@@ -47,18 +55,26 @@ def _source_files(source_path: Path, repo_root: Path) -> list[LocalKnowledgeFile
         raise ValueError(f"Knowledge source path is not a directory: {source_path}")
 
     files: list[LocalKnowledgeFile] = []
-    for path in sorted(item for item in source_path.rglob("*") if item.is_file()):
+    for path in sorted(source_path.glob("*.json")):
         relative_name = path.relative_to(source_path).as_posix()
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        content = path.read_bytes()
+        document = json.loads(content)
+        if not isinstance(document, dict):
+            raise ValueError(f"Knowledge source file must contain a JSON object: {relative_name}")
+        document["id"] = hashlib.sha256(relative_name.encode("utf-8")).hexdigest()
+        document["sourceFile"] = relative_name
+        document["content"] = json.dumps(document, ensure_ascii=False)
         files.append(
             LocalKnowledgeFile(
-                path=path,
                 relative_name=relative_name,
-                digest=digest,
+                digest=hashlib.sha256(content).hexdigest(),
+                document=document,
             )
         )
     if not files:
-        raise ValueError(f"Knowledge source path has no files: {source_path.relative_to(repo_root)}")
+        raise ValueError(
+            f"Knowledge source path has no JSON files: {source_path.relative_to(repo_root)}"
+        )
     return files
 
 
@@ -76,177 +92,250 @@ def _save_file_state(state: dict[str, Any]) -> None:
     )
 
 
-def _search_headers(credential: TokenCredential) -> dict[str, str]:
-    token = credential.get_token(SEARCH_SCOPE).token
-    return {"Authorization": f"Bearer {token}"}
-
-
-def _knowledge_source_url(endpoint: str, name: str, api_version: str) -> str:
-    return f"{endpoint.rstrip('/')}/knowledgesources/{quote(name)}?api-version={api_version}"
-
-
-def _knowledge_source_files_url(endpoint: str, name: str) -> str:
-    return f"{endpoint.rstrip('/')}/knowledgesources/{quote(name)}/files"
-
-
-def _knowledge_source_file_url(endpoint: str, name: str, file_id: str, api_version: str) -> str:
-    return (
-        f"{endpoint.rstrip('/')}/knowledgesources/{quote(name)}/files/"
-        f"{quote(file_id)}?api-version={api_version}"
-    )
-
-
-def _raise_for_status_with_body(response: httpx.Response) -> None:
-    if response.is_success:
-        return
-
-    safe_request_headers = {
-        key: ("<redacted>" if key.lower() == "authorization" else value)
-        for key, value in response.request.headers.items()
+def _embedding_dimensions(model_name: str) -> int:
+    dimensions = {
+        "text-embedding-3-large": 3072,
+        "text-embedding-3-small": 1536,
+        "text-embedding-ada-002": 1536,
     }
-    safe_response_headers = {
-        key: ("<redacted>" if key.lower() == "authorization" else value)
-        for key, value in response.headers.items()
-    }
-    print("Azure AI Search REST request failed")
-    print(f"Request: {response.request.method} {response.request.url}")
-    print(f"Request headers: {json.dumps(safe_request_headers, indent=2)}")
-    print(f"Status: {response.status_code} {response.reason_phrase}")
-    print(f"Response headers: {json.dumps(safe_response_headers, indent=2)}")
-    print("Response body:")
-    print(response.text)
-    response.raise_for_status()
+    try:
+        return dimensions[model_name]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported embedding model for index dimensions: {model_name}") from exc
 
 
-def _create_or_update_file_knowledge_source(
+def _create_or_update_index(
     source: dict[str, Any],
-    credential: TokenCredential,
+    index_client: SearchIndexClient,
 ) -> None:
     embedding = source["embeddingModel"]
-    payload = {
-        "name": source["name"],
-        "kind": "file",
-        "description": source.get("description", "File knowledge source"),
-        "fileParameters": {
-            "ingestionParameters": {
-                "contentExtractionMode": source.get("contentExtractionMode", "minimal"),
-                "embeddingModel": {
-                    "kind": "azureOpenAI",
-                    "azureOpenAIParameters": {
-                        "resourceUri": _env(embedding["resourceUriEnv"]),
-                        "deploymentId": _env(embedding["deploymentIdEnv"]),
-                        "modelName": embedding["modelName"],
-                    },
-                },
-            }
-        },
-    }
-    endpoint = _env(source["searchEndpointEnv"])
-    api_version = source.get("apiVersion", "2026-08-01-preview")
-    response = httpx.put(
-        _knowledge_source_url(endpoint, source["name"], api_version),
-        headers={**_search_headers(credential), "Prefer": "return=representation"},
-        json=payload,
-        timeout=240,
+    index_name = source["indexName"]
+    model_name = _env(embedding["modelNameEnv"])
+    vector_profile_name = f"{index_name}-vector-profile"
+    vectorizer_name = f"{index_name}-vectorizer"
+    semantic_configuration_name = f"{index_name}-semantic-configuration"
+    index = SearchIndex(
+        name=index_name,
+        fields=[
+            SearchField(name="id", type="Edm.String", key=True, filterable=True),
+            SearchField(
+                name="documentType",
+                type="Edm.String",
+                searchable=True,
+                filterable=True,
+                facetable=True,
+            ),
+            SearchField(name="destination", type="Edm.String", searchable=True, filterable=True),
+            SearchField(name="visitDate", type="Edm.String", searchable=True, filterable=True),
+            SearchField(name="title", type="Edm.String", searchable=True),
+            SearchField(name="summary", type="Edm.String", searchable=True),
+            SearchField(name="whatWorked", type="Collection(Edm.String)", searchable=True),
+            SearchField(name="whatDidNotWork", type="Collection(Edm.String)", searchable=True),
+            SearchField(name="weatherNotes", type="Edm.String", searchable=True),
+            SearchField(name="futureRecommendation", type="Edm.String", searchable=True),
+            SearchField(name="travellerProfile", type="Edm.String", searchable=True),
+            SearchField(name="weatherFit", type="Edm.String", searchable=True),
+            SearchField(name="tripStyle", type="Edm.String", searchable=True),
+            SearchField(name="thingsToAvoid", type="Collection(Edm.String)", searchable=True),
+            SearchField(name="scoringGuidance", type="Edm.String", searchable=True),
+            SearchField(name="sourceFile", type="Edm.String", filterable=True),
+            SearchField(name="content", type="Edm.String", searchable=True),
+            SearchField(
+                name="contentVector",
+                type="Collection(Edm.Single)",
+                searchable=True,
+                stored=False,
+                vector_search_dimensions=_embedding_dimensions(model_name),
+                vector_search_profile_name=vector_profile_name,
+            ),
+        ],
+        vector_search=VectorSearch(
+            profiles=[
+                VectorSearchProfile(
+                    name=vector_profile_name,
+                    algorithm_configuration_name="hnsw",
+                    vectorizer_name=vectorizer_name,
+                )
+            ],
+            algorithms=[HnswAlgorithmConfiguration(name="hnsw")],
+            vectorizers=[
+                AzureOpenAIVectorizer(
+                    vectorizer_name=vectorizer_name,
+                    parameters=AzureOpenAIVectorizerParameters(
+                        resource_url=_env(embedding["resourceUriEnv"]),
+                        deployment_name=_env(embedding["deploymentIdEnv"]),
+                        model_name=model_name,
+                    ),
+                )
+            ],
+        ),
+        semantic_search=SemanticSearch(
+            default_configuration_name=semantic_configuration_name,
+            configurations=[
+                SemanticConfiguration(
+                    name=semantic_configuration_name,
+                    prioritized_fields=SemanticPrioritizedFields(
+                        content_fields=[
+                            SemanticField(field_name="summary")
+                        ]
+                    )
+                )
+            ],
+        ),
     )
-    _raise_for_status_with_body(response)
-    print(f"Knowledge source {source['name']}: created or updated")
+    try:
+        index_client.create_or_update_index(index)
+    except HttpResponseError as exc:
+        raise _search_http_error("create or update Search index", source, exc) from exc
+    print(f"Search index {index_name}: created or updated")
 
 
-def _list_remote_files(
+def _create_or_update_index_knowledge_source(
     source: dict[str, Any],
-    credential: TokenCredential,
-) -> dict[str, str]:
-    endpoint = _env(source["searchEndpointEnv"])
-    api_version = source.get("apiVersion", "2026-08-01-preview")
-    response = httpx.get(
-        _knowledge_source_files_url(endpoint, source["name"]),
-        headers=_search_headers(credential),
-        params={"api-version": api_version, "pageSize": "200"},
-        timeout=240,
-    )
-    if response.status_code == 404:
-        return {}
-    _raise_for_status_with_body(response)
-    return {
-        item.get("fileName") or item.get("file_name"): item.get("fileId") or item.get("file_id")
-        for item in response.json().get("value", [])
-        if item.get("fileName") or item.get("file_name")
-    }
-
-
-def _delete_remote_file(
-    source: dict[str, Any],
-    credential: TokenCredential,
-    file_id: str,
+    index_client: SearchIndexClient,
 ) -> None:
-    endpoint = _env(source["searchEndpointEnv"])
-    api_version = source.get("apiVersion", "2026-08-01-preview")
-    response = httpx.delete(
-        _knowledge_source_file_url(endpoint, source["name"], file_id, api_version),
-        headers=_search_headers(credential),
-        timeout=240,
+    index_name = source["indexName"]
+    semantic_configuration_name = f"{index_name}-semantic-configuration"
+    knowledge_source = SearchIndexKnowledgeSource(
+        name=source["name"],
+        description=source.get("description", "Azure AI Search index knowledge source"),
+        search_index_parameters=SearchIndexKnowledgeSourceParameters(
+            search_index_name=index_name,
+            semantic_configuration_name=semantic_configuration_name,
+        ),
     )
-    if response.status_code != 404:
-        _raise_for_status_with_body(response)
+    try:
+        index_client.create_or_update_knowledge_source(knowledge_source)
+    except HttpResponseError as exc:
+        raise _search_http_error("create or update Search knowledge source", source, exc) from exc
+    print(f"Knowledge source {source['name']}: references index {index_name}")
 
 
-def _upload_file(
+def _search_http_error(operation: str, source: dict[str, Any], exc: HttpResponseError) -> RuntimeError:
+    status_code = getattr(exc, "status_code", None)
+    message = f"Azure AI Search failed to {operation} for {source['name']}: {exc.message}"
+    if status_code == 403:
+        message += (
+            " The deployment identity is authenticated but is not authorized for this "
+            "Search operation. For setup, grant the identity Search Index Data Contributor "
+            "on the Search service; index or knowledge-source management may also require "
+            "Search Service Contributor depending on the operation."
+        )
+    return RuntimeError(message)
+
+
+def _changed_files(
+    local_files: list[LocalKnowledgeFile],
+    previous_source_state: dict[str, Any],
+) -> list[LocalKnowledgeFile]:
+    changed: list[LocalKnowledgeFile] = []
+    for file in local_files:
+        previous = previous_source_state.get(file.relative_name, {})
+        if previous.get("sha256") != file.digest or previous.get("documentId") != file.document["id"]:
+            changed.append(file)
+    return changed
+
+
+def _add_embeddings(
     source: dict[str, Any],
     credential: TokenCredential,
-    file: LocalKnowledgeFile,
-) -> str:
-    file_path = file.path
-    endpoint = _env(source["searchEndpointEnv"])
-    api_version = source.get("apiVersion", "2026-08-01-preview")
-    print(f"Knowledge source {source['name']}: uploading {file.relative_name}")
-    response = httpx.post(
-        _knowledge_source_files_url(endpoint, source["name"]),
-        params={"api-version": api_version},
-        headers={
-            **_search_headers(credential),
-            # Upload gotchas: the 2026-08-01-preview endpoint accepts raw
-            # application/octet-stream or multipart/form-data. For this demo we
-            # use raw upload with JSON files because markdown/plain-text content
-            # returned server-side processing failures in this preview endpoint.
-            # Search detects file type from bytes and filename, so keep useful
-            # extensions in Content-Disposition.
-            "Content-Type": "application/octet-stream",
-            "Content-Disposition": f'attachment; filename="{file.relative_name}"',
-        },
-        content=file_path.read_bytes(),
-        timeout=240,
-    )
-    _raise_for_status_with_body(response)
-    uploaded_file = response.json()
-    return str(uploaded_file.get("fileId") or uploaded_file.get("file_id") or "")
+) -> list[LocalKnowledgeFile]:
+    source_path = source["_sourcePath"]
+    local_files = source["_localFiles"]
+    embedding = source["embeddingModel"]
+    resource_uri = _env(embedding["resourceUriEnv"])
+    deployment_id = _env(embedding["deploymentIdEnv"])
+    model_name = _env(embedding["modelNameEnv"])
+    token_provider = get_bearer_token_provider(credential, COGNITIVE_SERVICES_SCOPE)
+    print(f"  Embedding resource: {resource_uri}")
+    print(f"  Embedding deployment: {deployment_id}")
+    print(f"  Embedding model: {model_name}")
+    with OpenAI(
+        base_url=f"{resource_uri.rstrip('/')}/openai/v1/",
+        api_key=token_provider,
+    ) as openai_client:
+        response = openai_client.embeddings.create(
+            model=deployment_id,
+            input=[file.document["content"] for file in local_files],
+            dimensions=_embedding_dimensions(model_name),
+        )
+    for file, embedding_data in zip(local_files, response.data, strict=True):
+        file.document["contentVector"] = embedding_data.embedding
+    return local_files
+
+
+def _ensure_indexing_succeeded(operation: str, results: list[Any]) -> None:
+    failures = [result for result in results if not result.succeeded]
+    if failures:
+        details = "; ".join(
+            f"{result.key}: {result.error_message or 'unknown error'}" for result in failures
+        )
+        raise RuntimeError(f"Azure AI Search {operation} failed: {details}")
 
 
 def sync_azure_ai_search_file_source(source: dict[str, Any], repo_root: Path) -> None:
     source_path = repo_root / source["sourcePath"]
     local_files = _source_files(source_path, repo_root)
     state = _load_file_state()
-    source_state = state.setdefault(source["name"], {})
+    previous_source_state = state.get(source["name"], {})
+    endpoint = _env(source["searchEndpointEnv"])
+    index_name = source["indexName"]
 
     with DefaultAzureCredential() as credential:
-        _create_or_update_file_knowledge_source(source, credential)
-        remote_files = _list_remote_files(source, credential)
+        with SearchIndexClient(endpoint=endpoint, credential=credential) as index_client:
+            _create_or_update_index(source, index_client)
 
-        for file in local_files:
-            previous = source_state.get(file.relative_name, {})
-            if previous.get("sha256") == file.digest and previous.get("fileId"):
-                print(f"Knowledge source {source['name']}: unchanged {file.relative_name}")
-                continue
+            embedding_source = dict(source)
+            embedding_source["_sourcePath"] = source_path
+            embedding_source["_localFiles"] = local_files
+            files_to_upload = _changed_files(local_files, previous_source_state)
+            if files_to_upload:
+                embedding_source["_localFiles"] = files_to_upload
+                embedded_files = _add_embeddings(embedding_source, credential)
+            else:
+                embedded_files = []
+                print(f"Search index {index_name}: no changed document(s) to upload")
 
-            previous_file_id = previous.get("fileId") or remote_files.get(file.relative_name)
-            if previous_file_id:
-                _delete_remote_file(source, credential, previous_file_id)
+            with SearchClient(
+                endpoint=endpoint,
+                index_name=index_name,
+                credential=credential,
+            ) as search_client:
+                if embedded_files:
+                    try:
+                        upload_results = search_client.upload_documents(
+                            documents=[file.document for file in embedded_files]
+                        )
+                    except HttpResponseError as exc:
+                        raise _search_http_error("upload documents", source, exc) from exc
+                    _ensure_indexing_succeeded("upload", upload_results)
+                    print(f"Search index {index_name}: uploaded {len(upload_results)} document(s)")
 
-            file_id = _upload_file(source, credential, file)
-            source_state[file.relative_name] = {
-                "fileId": file_id,
+                current_names = {file.relative_name for file in local_files}
+                stale_documents = [
+                    {"id": details["documentId"]}
+                    for relative_name, details in previous_source_state.items()
+                    if relative_name not in current_names and details.get("documentId")
+                ]
+                if stale_documents:
+                    try:
+                        delete_results = search_client.delete_documents(documents=stale_documents)
+                    except HttpResponseError as exc:
+                        raise _search_http_error("delete stale documents", source, exc) from exc
+                    _ensure_indexing_succeeded("delete", delete_results)
+                    print(
+                        f"Search index {index_name}: deleted "
+                        f"{len(delete_results)} stale document(s)"
+                    )
+
+            _create_or_update_index_knowledge_source(source, index_client)
+
+        state[source["name"]] = {
+            file.relative_name: {
+                "documentId": file.document["id"],
                 "sha256": file.digest,
             }
-            print(f"Knowledge source {source['name']}: uploaded {file.relative_name}")
+            for file in local_files
+        }
 
     _save_file_state(state)

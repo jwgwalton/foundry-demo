@@ -21,7 +21,10 @@ Use this order whenever toolbox tools change:
 2.  Create missing azd-managed Foundry connections and verify all required
   connections exist.
 3.  Upload or index knowledge-source data.
-4.  Create a new toolbox version.
+4.  Create or update the toolbox. The first deployment uses
+  `azd ai toolbox create --from-file`; later deployments create a new immutable
+  version with `azd ai toolbox connection add --from-file` and promote it with
+  `azd ai toolbox publish`.
 5.  Sync the selected `TOOLBOX_NAME` and `TOOLBOX_VERSION` into azd.
 6.  Deploy or run the hosted agent.
 7.  Smoke-test the agent and inspect traces.
@@ -121,6 +124,11 @@ connections:
     create: azd
 ```
 
+  The travel review Search connection is created by `azd` with API-key
+  authentication. The manifest declares `secretEnv: SEARCH_QUERY_KEY`, so
+  `scripts/deploy_tooling.py` exits before creation if that environment variable is
+  not populated.
+
 Connection entries with `create: manual` must already exist. Entries with
 `create: azd` are created with `azd ai connection create` when missing. Secret
 values are read from environment variables such as `PLACES_API_KEY`; they are
@@ -157,6 +165,7 @@ Required environment variables:
 
 ```text
 AZURE_SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
+SEARCH_QUERY_KEY="<search-service-query-key>"
 AZURE_OPENAI_ENDPOINT="https://<openai-resource>.openai.azure.com"
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME="text-embedding-3-large"
 ```
@@ -210,9 +219,12 @@ Deploy the tooling stack:
 uv run python scripts/deploy_tooling.py
 ```
 
-Deployment mode always runs the complete sequence: set the active Foundry
-project, ensure required connections exist, sync knowledge-source data, then
-create a toolbox version only when the fingerprint changed.
+Deployment mode validates local manifests and computes the tooling fingerprint
+before cloud calls. If the fingerprint is unchanged, the script skips cloud
+reconciliation and toolbox version creation by default. If the fingerprint has
+changed, it checks the deployment context, sets the active Foundry project,
+ensures required connections exist, syncs changed knowledge-source data and
+creates a toolbox version.
 
 Validate local manifests and fingerprints without cloud calls:
 
@@ -224,6 +236,13 @@ Force toolbox version creation even if the fingerprint is unchanged:
 
 ```powershell
 uv run python scripts/deploy_tooling.py --force
+```
+
+Verify or repair cloud dependencies without forcing a new toolbox version when
+the fingerprint is unchanged:
+
+```powershell
+uv run python scripts/deploy_tooling.py --reconcile
 ```
 
 ## Current Implementation Status
@@ -239,9 +258,11 @@ Implemented now:
 -   post-create validation that each required connection exists
 -   Azure AI Search file knowledge source creation/update and file upload for
   `travel-reviews/`
--   web-search toolbox creation through `azd ai toolbox create --from-file`
+-   initial toolbox creation through `azd ai toolbox create --from-file`
+-   subsequent toolbox version creation through `azd ai toolbox connection add
+  --from-file` followed by `azd ai toolbox publish`
 -   local fingerprinting of manifests, OpenAPI specs and declared source paths
-  to skip unchanged toolbox deployments
+  to skip unchanged cloud reconciliation and toolbox deployments
 -   generated `.tooling-state/toolbox.azd.yaml` payload for the CLI
 -   local file upload state in `.tooling-state/knowledge-source-files.json` to
   skip unchanged file uploads
@@ -276,15 +297,25 @@ payload passed to `azd ai toolbox create --from-file`. This keeps
 `tooling/toolbox.yaml` reviewable while allowing the script to add or omit
 CLI-specific fields as needed.
 
+Toolbox versions are owned by `azd` and Foundry. Do not update a version number
+in source code. When the toolbox already exists, the script writes
+`.tooling-state/toolbox-connections.azd.yaml`, asks `azd` to create a new version
+from that connection mutation, then publishes the returned version.
+
 For Azure AI Search file knowledge sources, the script records uploaded file IDs
 and SHA-256 hashes in `.tooling-state/knowledge-source-files.json`. If a local
-file is unchanged, upload is skipped. If a file changed and a previous file ID is
-known, the script deletes the prior remote file before uploading the new content.
+file is unchanged, embedding generation and document upload are skipped. If a
+file changed, the script generates a fresh embedding and uploads the updated
+document. If a previously uploaded file is removed locally, the script deletes
+the stale remote document.
 
-When the fingerprint is unchanged, toolbox version creation is skipped by
-default. Use `--force` to create a new toolbox version anyway:
+When the fingerprint is unchanged, cloud reconciliation and toolbox version
+creation are skipped by default. Use `--reconcile` to check and repair cloud
+dependencies without creating a new toolbox version, or use `--force` to create a
+new toolbox version anyway:
 
 ```powershell
+uv run python scripts/deploy_tooling.py --reconcile
 uv run python scripts/deploy_tooling.py --force
 ```
 

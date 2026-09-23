@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,9 +18,26 @@ class AzdResult:
     stderr: str
 
 
-def run_azd(*args: str, sensitive: bool = False) -> AzdResult:
+def _format_stream(name: str, value: str) -> str:
+    content = value.strip()
+    if not content:
+        return f"{name}: <empty>"
+    return f"{name}:\n{content}"
+
+
+def _azd_env() -> dict[str, str]:
     process_env = os.environ.copy()
     process_env.setdefault("AZURE_DEV_USER_AGENT", AZURE_DEV_USER_AGENT)
+    return process_env
+
+
+def ensure_azd_available() -> None:
+    if shutil.which("azd") is None:
+        raise RuntimeError("Azure Developer CLI 'azd' was not found on PATH.")
+
+
+def run_azd(*args: str, sensitive: bool = False) -> AzdResult:
+    ensure_azd_available()
 
     display_args = " ".join(args if not sensitive else (*args[:4], "<redacted>"))
     print(f"Running azd {display_args}")
@@ -28,13 +46,20 @@ def run_azd(*args: str, sensitive: bool = False) -> AzdResult:
         ["azd", *args],
         check=False,
         capture_output=True,
-        env=process_env,
+        env=_azd_env(),
         text=True,
     )
     if completed.returncode != 0:
+        details = [
+            f"azd {display_args} failed with exit code {completed.returncode}.",
+            f"Working directory: {Path.cwd()}",
+            _format_stream("stdout", completed.stdout),
+            _format_stream("stderr", completed.stderr),
+        ]
+        if not completed.stdout.strip() and not completed.stderr.strip():
+            details.append("azd produced no output. Rerun the command directly with --debug for CLI diagnostics.")
         raise RuntimeError(
-            f"azd {display_args} failed with exit code {completed.returncode}: "
-            f"{completed.stderr.strip()}"
+            "\n".join(details)
         )
     return AzdResult(stdout=completed.stdout, stderr=completed.stderr)
 
@@ -43,7 +68,11 @@ def run_azd_json(*args: str) -> dict[str, Any]:
     result = run_azd(*args, "--output", "json")
     if not result.stdout.strip():
         return {}
-    return json.loads(result.stdout)
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        display_args = " ".join(args)
+        raise RuntimeError(f"azd {display_args} returned invalid JSON: {exc}") from exc
 
 
 def set_project(endpoint: str) -> None:
@@ -51,11 +80,24 @@ def set_project(endpoint: str) -> None:
 
 
 def connection_exists(name: str) -> bool:
+    ensure_azd_available()
     completed = subprocess.run(
         ["azd", "ai", "connection", "show", name, "--output", "json"],
         check=False,
         capture_output=True,
-        env={**os.environ, "AZURE_DEV_USER_AGENT": os.environ.get("AZURE_DEV_USER_AGENT", AZURE_DEV_USER_AGENT)},
+        env=_azd_env(),
+        text=True,
+    )
+    return completed.returncode == 0
+
+
+def toolbox_exists(name: str) -> bool:
+    ensure_azd_available()
+    completed = subprocess.run(
+        ["azd", "ai", "toolbox", "show", name, "--output", "json"],
+        check=False,
+        capture_output=True,
+        env=_azd_env(),
         text=True,
     )
     return completed.returncode == 0
@@ -71,6 +113,9 @@ def create_connection(connection: dict[str, Any]) -> None:
         if not target:
             raise ValueError(f"Environment variable {target_env} is required for {name}.")
     auth_type = connection.get("authType")
+    project_endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT")
+    if not project_endpoint:
+        raise ValueError(f"Environment variable FOUNDRY_PROJECT_ENDPOINT is required for {name}.")
     if not kind or not target or not auth_type:
         raise ValueError(
             f"Connection {name} cannot be created automatically without kind, "
@@ -82,6 +127,8 @@ def create_connection(connection: dict[str, Any]) -> None:
         "connection",
         "create",
         name,
+        "--project-endpoint",
+        project_endpoint.rstrip("/"),
         "--kind",
         kind,
         "--target",
@@ -127,3 +174,19 @@ def create_toolbox_from_file(toolbox_name: str, toolbox_file: Path) -> dict[str,
         "--no-prompt",
     )
     return run_azd_json("ai", "toolbox", "show", toolbox_name)
+
+
+def add_toolbox_connections_from_file(toolbox_name: str, connections_file: Path) -> dict[str, Any]:
+    return run_azd_json(
+        "ai",
+        "toolbox",
+        "connection",
+        "add",
+        toolbox_name,
+        "--from-file",
+        str(connections_file),
+    )
+
+
+def publish_toolbox_version(toolbox_name: str, version: str) -> dict[str, Any]:
+    return run_azd_json("ai", "toolbox", "publish", toolbox_name, version)
